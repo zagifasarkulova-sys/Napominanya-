@@ -8,7 +8,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from flask import Flask
 from threading import Thread
 
-TOKEN = "ВАШ_ТОКЕН_БОТА"
+TOKEN = "8355255876:AAECvH2LthX_77OrENmox4nIuzxhTonEIMA"
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 scheduler = AsyncIOScheduler()
