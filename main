@@ -8,51 +8,54 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from flask import Flask
 from threading import Thread
 
-# 1. Настройка
-TOKEN = "ВАШ_ТОКЕН_ТУТ"
+TOKEN = "ВАШ_ТОКЕН_БОТА"
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 scheduler = AsyncIOScheduler()
 
-# 2. Веб-сервер для Анти-сна
+# Веб-сервер для "оживления" сервера
 app = Flask('')
 @app.route('/')
-def home(): return "Бот Напоминания активен!"
+def home(): return "Бот-напоминалка запущен!"
 
 def run_web():
     app.run(host='0.0.0.0', port=7860)
 
-# 3. Логика напоминаний
-async def send_reminder(chat_id, text, is_warning=False):
-    prefix = "⚠️ ПРЕДУПРЕЖДЕНИЕ: Через 5 минут — " if is_warning else "⏰ ПОРА: "
-    await bot.send_message(chat_id, f"{prefix}{text}")
+async def send_reminder(chat_id, text, type):
+    msg = "⏰ ПОРА: " if type == "main" else "⚠️ Через 5 минут: "
+    await bot.send_message(chat_id, msg + text)
 
-# 4. Обработка команд
 @dp.message(Command("start"))
-async def cmd_start(message: types.Message):
+async def start(message: types.Message):
     builder = InlineKeyboardBuilder()
-    builder.row(types.InlineKeyboardButton(text="⏰ Поставить напоминание", callback_data="add_rem"))
-    await message.answer("Привет! Я помогу не забыть о важных делах.", reply_markup=builder.as_markup())
+    # Создаем кнопки с популярным временем для примера
+    times = ["10:00", "14:00", "18:00", "21:00"]
+    for t in times:
+        builder.button(text=t, callback_data=f"time_{t}")
+    builder.adjust(2)
+    await message.answer("Выбери время для напоминания:", reply_markup=builder.as_markup())
 
-@dp.callback_query(F.data == "add_rem")
-async def add_reminder_step1(callback: types.CallbackQuery):
-    # Здесь можно сделать выбор времени кнопками, для примера поставим через 10 минут
-    rem_time = datetime.now() + timedelta(minutes=10)
-    task_text = "Пример задачи"
+@dp.callback_query(F.data.startswith("time_"))
+async def set_time(callback: types.CallbackQuery):
+    selected_time = callback.data.split("_")[1]
     chat_id = callback.message.chat.id
-
-    # Напоминание за 5 минут
-    scheduler.add_job(send_reminder, 'date', run_date=rem_time - timedelta(minutes=5), args=[chat_id, task_text, True])
     
-    # Основное напоминание
-    scheduler.add_job(send_reminder, 'date', run_date=rem_time, args=[chat_id, task_text, False])
-
-    await callback.message.edit_text(f"✅ Напоминание создано на {rem_time.strftime('%H:%M')}\nЯ предупрежу тебя за 5 минут!")
+    # Расчет времени (упрощенно на текущий день)
+    now = datetime.now()
+    target = datetime.strptime(selected_time, "%H:%M").replace(year=now.year, month=now.month, day=now.day)
+    
+    # Планируем основное напоминание
+    scheduler.add_job(send_reminder, 'date', run_date=target, args=[chat_id, "Твое важное дело!", "main"])
+    
+    # Планируем за 5 минут
+    scheduler.add_job(send_reminder, 'date', run_date=target - timedelta(minutes=5), args=[chat_id, "Твое важное дело!", "warn"])
+    
+    await callback.message.edit_text(f"✅ Готово! Напомню в {selected_time}, и предупрежу за 5 минут до этого.")
 
 async def main():
-    Thread(target=run_web).start() # Запуск фляги
-    scheduler.start()              # Запуск часов
-    await dp.start_polling(bot)    # Запуск бота
+    Thread(target=run_web).start()
+    scheduler.start()
+    await dp.start_polling(bot)
 
 if __name__ == "__main__":
     asyncio.run(main())
