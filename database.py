@@ -1,24 +1,32 @@
-import sqlite3
+import os
+import logging
 from datetime import datetime
+import psycopg2
+from psycopg2.extras import RealDictCursor
 
-DB_PATH = "reminders.db"
+logger = logging.getLogger(__name__)
+
+DATABASE_URL = os.getenv("DATABASE_URL")
+
+
+def get_conn():
+    return psycopg2.connect(DATABASE_URL)
 
 
 def init_db():
-    """Инициализация базы данных"""
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_conn()
     cursor = conn.cursor()
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS reminders (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER NOT NULL,
+            id SERIAL PRIMARY KEY,
+            user_id BIGINT NOT NULL,
             text TEXT NOT NULL,
-            remind_at TEXT NOT NULL,
-            notified_10 INTEGER DEFAULT 0,
-            notified_5 INTEGER DEFAULT 0,
-            notified_2 INTEGER DEFAULT 0,
-            is_sent INTEGER DEFAULT 0,
-            created_at TEXT DEFAULT (datetime('now'))
+            remind_at TIMESTAMP NOT NULL,
+            notified_10 BOOLEAN DEFAULT FALSE,
+            notified_5 BOOLEAN DEFAULT FALSE,
+            notified_2 BOOLEAN DEFAULT FALSE,
+            is_sent BOOLEAN DEFAULT FALSE,
+            created_at TIMESTAMP DEFAULT NOW()
         )
     """)
     conn.commit()
@@ -26,38 +34,35 @@ def init_db():
 
 
 def add_reminder(user_id: int, text: str, remind_at: datetime) -> int:
-    """Добавить напоминание, вернуть его ID"""
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_conn()
     cursor = conn.cursor()
     cursor.execute(
-        "INSERT INTO reminders (user_id, text, remind_at) VALUES (?, ?, ?)",
-        (user_id, text, remind_at.strftime("%Y-%m-%d %H:%M:%S"))
+        "INSERT INTO reminders (user_id, text, remind_at) VALUES (%s, %s, %s) RETURNING id",
+        (user_id, text, remind_at)
     )
-    reminder_id = cursor.lastrowid
+    reminder_id = cursor.fetchone()[0]
     conn.commit()
     conn.close()
     return reminder_id
 
 
 def get_reminders(user_id: int) -> list:
-    """Получить все активные напоминания пользователя"""
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_conn()
     cursor = conn.cursor()
     cursor.execute(
-        "SELECT id, text, remind_at FROM reminders WHERE user_id = ? AND is_sent = 0 ORDER BY remind_at ASC",
+        "SELECT id, text, remind_at FROM reminders WHERE user_id = %s AND is_sent = FALSE ORDER BY remind_at ASC",
         (user_id,)
     )
     rows = cursor.fetchall()
     conn.close()
-    return rows
+    return [(r[0], r[1], r[2].strftime("%Y-%m-%d %H:%M:%S")) for r in rows]
 
 
 def delete_reminder(reminder_id: int, user_id: int) -> bool:
-    """Удалить напоминание по ID (только своё)"""
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_conn()
     cursor = conn.cursor()
     cursor.execute(
-        "DELETE FROM reminders WHERE id = ? AND user_id = ?",
+        "DELETE FROM reminders WHERE id = %s AND user_id = %s",
         (reminder_id, user_id)
     )
     deleted = cursor.rowcount > 0
@@ -67,24 +72,22 @@ def delete_reminder(reminder_id: int, user_id: int) -> bool:
 
 
 def get_pending_reminders() -> list:
-    """Получить все несработавшие напоминания для планировщика"""
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_conn()
     cursor = conn.cursor()
     cursor.execute(
         """SELECT id, user_id, text, remind_at, notified_10, notified_5, notified_2, is_sent
-           FROM reminders WHERE is_sent = 0"""
+           FROM reminders WHERE is_sent = FALSE"""
     )
     rows = cursor.fetchall()
     conn.close()
-    return rows
+    return [(r[0], r[1], r[2], r[3].strftime("%Y-%m-%d %H:%M:%S"), r[4], r[5], r[6], r[7]) for r in rows]
 
 
 def mark_notified(reminder_id: int, level: str):
-    """Отметить что уведомление за N минут отправлено. level: '10', '5', '2'"""
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_conn()
     cursor = conn.cursor()
     cursor.execute(
-        f"UPDATE reminders SET notified_{level} = 1 WHERE id = ?",
+        f"UPDATE reminders SET notified_{level} = TRUE WHERE id = %s",
         (reminder_id,)
     )
     conn.commit()
@@ -92,11 +95,10 @@ def mark_notified(reminder_id: int, level: str):
 
 
 def mark_sent(reminder_id: int):
-    """Отметить напоминание как отправленное (выполнено)"""
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_conn()
     cursor = conn.cursor()
     cursor.execute(
-        "UPDATE reminders SET is_sent = 1 WHERE id = ?",
+        "UPDATE reminders SET is_sent = TRUE WHERE id = %s",
         (reminder_id,)
     )
     conn.commit()
@@ -104,14 +106,21 @@ def mark_sent(reminder_id: int):
 
 
 def snooze_reminder(reminder_id: int, new_time: datetime):
-    """Отложить напоминание на новое время (кнопка +30 мин)"""
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_conn()
     cursor = conn.cursor()
     cursor.execute(
         """UPDATE reminders
-           SET remind_at = ?, notified_10 = 0, notified_5 = 0, notified_2 = 0, is_sent = 0
-           WHERE id = ?""",
-        (new_time.strftime("%Y-%m-%d %H:%M:%S"), reminder_id)
+           SET remind_at = %s, notified_10 = FALSE, notified_5 = FALSE, notified_2 = FALSE, is_sent = FALSE
+           WHERE id = %s""",
+        (new_time, reminder_id)
     )
     conn.commit()
     conn.close()
+```
+
+И обнови `requirements.txt`:
+```
+aiogram==3.7.0
+aiohttp==3.9.5
+psycopg2-binary
+pytz
