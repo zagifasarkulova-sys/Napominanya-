@@ -69,8 +69,10 @@ def list_keyboard(reminders: list) -> InlineKeyboardMarkup:
 
 def seen_keyboard(reminder_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="✅ Видел", callback_data=f"seen_{reminder_id}")]
+        [InlineKeyboardButton(text="✅ Видел", callback_data=f"seen_{reminder_id}")],
+        [InlineKeyboardButton(text="🏠 Меню", callback_data="menu")],
     ])
+
 
 
 def done_keyboard(reminder_id: int) -> InlineKeyboardMarkup:
@@ -78,7 +80,8 @@ def done_keyboard(reminder_id: int) -> InlineKeyboardMarkup:
         [
             InlineKeyboardButton(text="✅ Выполнено", callback_data=f"done_{reminder_id}"),
             InlineKeyboardButton(text="⏰ +30 мин", callback_data=f"snooze_{reminder_id}"),
-        ]
+        ],
+        [InlineKeyboardButton(text="🏠 Меню", callback_data="menu")],
     ])
 
 
